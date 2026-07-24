@@ -15,57 +15,24 @@ admin.site.index_title = "پنل مدیریت"
 
 
 urlpatterns = [
-    path(
-        "admin/",
-        admin.site.urls,
-    ),
-
-    path(
-        "api/",
-        include("core.urls"),
-    ),
-
-    path(
-        "api/users/",
-        include("accounts.urls"),
-    ),
-
-    path(
-        "api/projects/",
-        include("projects.urls"),
-    ),
-
-    path(
-        "api/assets/",
-        include("assets.urls"),
-    ),
-
-    path(
-        "api/asset-documents/",
-        include("asset_documents.urls"),
-    ),
-
-    path(
-        "api/locations/",
-        include("locations.urls"),
-    ),
-
-    path(
-        "api/work-orders/",
-        include("work_orders.urls"),
-    ),
-
+    path("admin/", admin.site.urls),
+    path("api/", include("core.urls")),
+    path("api/users/", include("accounts.urls")),
+    path("api/projects/", include("projects.urls")),
+    path("api/assets/", include("assets.urls")),
+    path("api/asset-documents/", include("asset_documents.urls")),
+    path("api/locations/", include("locations.urls")),
+    path("api/work-orders/", include("work_orders.urls")),
     path(
         "api/preventive-maintenance/",
         include("preventive_maintenance.urls"),
     ),
-
+    path("api/inventory/", include("inventory.urls")),
     path(
         "api/auth/login/",
         TokenObtainPairView.as_view(),
         name="token-obtain-pair",
     ),
-
     path(
         "api/auth/refresh/",
         TokenRefreshView.as_view(),
