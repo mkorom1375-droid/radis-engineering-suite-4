@@ -92,6 +92,16 @@ class WarehouseFilter(
 ):
     """Filters for warehouse list and retrieve endpoints."""
 
+    code = django_filters.CharFilter(
+        field_name="code",
+        lookup_expr="icontains",
+    )
+
+    name = django_filters.CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+    )
+
     warehouse_type = django_filters.CharFilter(
         field_name="warehouse_type",
         lookup_expr="exact",
@@ -114,6 +124,8 @@ class WarehouseFilter(
         fields = [
             "project",
             "project_id",
+            "code",
+            "name",
             "warehouse_type",
             "manager",
             "manager_id",
@@ -126,6 +138,16 @@ class InventoryItemFilter(
     django_filters.FilterSet,
 ):
     """Filters for inventory master items."""
+
+    code = django_filters.CharFilter(
+        field_name="code",
+        lookup_expr="icontains",
+    )
+
+    name = django_filters.CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+    )
 
     item_type = django_filters.CharFilter(
         field_name="item_type",
@@ -236,6 +258,8 @@ class InventoryItemFilter(
         fields = [
             "project",
             "project_id",
+            "code",
+            "name",
             "item_type",
             "category",
             "manufacturer",

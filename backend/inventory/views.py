@@ -673,6 +673,20 @@ class WorkOrderPartViewSet(viewsets.ModelViewSet):
 
     queryset = WorkOrderPart.objects.none()
 
+    action_serializer_classes = {
+        "reserve": StockReservationSerializer,
+        "release_reservation": StockReservationReleaseSerializer,
+        "issue": StockIssueSerializer,
+        "consume": StockConsumptionSerializer,
+        "return_stock": StockReturnSerializer,
+    }
+
+    def get_serializer_class(self):
+        return self.action_serializer_classes.get(
+            self.action,
+            self.serializer_class,
+        )
+
     def get_queryset(self):
         return (
             WorkOrderPart.objects
@@ -686,6 +700,48 @@ class WorkOrderPartViewSet(viewsets.ModelViewSet):
             )
             .all()
         )
+
+    def execute_stock_operation(self, request):
+        payload = request.data.copy()
+        payload["work_order_part"] = self.kwargs["pk"]
+        input_serializer = self.get_serializer(
+            data=payload,
+            context={
+                **self.get_serializer_context(),
+                "request": request,
+            },
+        )
+        input_serializer.is_valid(raise_exception=True)
+        operation_result = input_serializer.save()
+        output_serializer = StockOperationResultSerializer(
+            operation_result,
+            context=self.get_serializer_context(),
+        )
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="reserve")
+    def reserve(self, request, **kwargs):
+        return self.execute_stock_operation(request)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="release-reservation",
+    )
+    def release_reservation(self, request, **kwargs):
+        return self.execute_stock_operation(request)
+
+    @action(detail=True, methods=["post"], url_path="issue")
+    def issue(self, request, **kwargs):
+        return self.execute_stock_operation(request)
+
+    @action(detail=True, methods=["post"], url_path="consume")
+    def consume(self, request, **kwargs):
+        return self.execute_stock_operation(request)
+
+    @action(detail=True, methods=["post"], url_path="return")
+    def return_stock(self, request, **kwargs):
+        return self.execute_stock_operation(request)
 
 
 class StockTransactionViewSet(
@@ -769,6 +825,30 @@ class StockTransactionViewSet(
     ]
 
     queryset = StockTransaction.objects.none()
+
+    @staticmethod
+    def _ledger_mutation_response():
+        return Response(
+            {
+                "detail": (
+                    "Stock transactions are an immutable audit ledger and "
+                    "cannot be changed through the API."
+                )
+            },
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def create(self, request, *args, **kwargs):
+        return self._ledger_mutation_response()
+
+    def update(self, request, *args, **kwargs):
+        return self._ledger_mutation_response()
+
+    def partial_update(self, request, *args, **kwargs):
+        return self._ledger_mutation_response()
+
+    def destroy(self, request, *args, **kwargs):
+        return self._ledger_mutation_response()
 
     def get_queryset(self):
         return (

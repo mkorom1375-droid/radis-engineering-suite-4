@@ -8,10 +8,20 @@ on:
   pull_request:
     branches:
       - main
+      - develop/**
+
+permissions:
+  contents: read
 
 jobs:
   django-checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DJANGO_DEBUG: "1"
+      DJANGO_SECRET_KEY: ci-only-secret-key
+      PYTHONUNBUFFERED: "1"
 
     defaults:
       run:
@@ -38,4 +48,15 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
 
       - name: Run backend tests
-        run: python manage.py test
+        run: |
+          set -o pipefail
+          python manage.py test --verbosity 2 2>&1 | tee django-test-output.log
+
+      - name: Upload Django test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: django-test-output
+          path: backend/django-test-output.log
+          if-no-files-found: warn
+          retention-days: 7
