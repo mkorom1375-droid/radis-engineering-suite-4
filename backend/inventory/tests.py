@@ -2,6 +2,7 @@
 Comprehensive tests for the inventory application.
 """
 
+from datetime import datetime
 from decimal import Decimal
 
 from django.apps import apps
@@ -10,6 +11,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 from rest_framework.test import force_authenticate
@@ -576,6 +578,19 @@ class WorkOrderPartModelTests(
             Decimal("7.000"),
         )
 
+    def test_remaining_required_quantity_excludes_reserved_quantity(self):
+
+        part = self.create_part(
+            requested=D10,
+            reserved=D3,
+            issued=D2,
+        )
+
+        self.assertEqual(
+            part.remaining_required_quantity,
+            Decimal("5.000"),
+        )
+
     def test_issued_available_quantity(self):
 
         part = self.create_part(
@@ -731,6 +746,27 @@ class StockReceiptServiceTests(
             stock_transaction.performed_by,
             self.user,
         )
+
+    def test_occurred_at_is_shared_by_balance_and_ledger(self):
+
+        occurred_at = datetime(2025, 1, 15, 10, 30, 0)
+
+        result = StockReceiptService.receive_stock(
+            warehouse=self.warehouse,
+            item=self.item,
+            quantity=D1,
+            unit_cost=Decimal("12.50"),
+            performed_by=self.user,
+            occurred_at=occurred_at,
+        )
+
+        expected_time = timezone.make_aware(
+            occurred_at,
+            timezone.get_current_timezone(),
+        )
+        self.assertEqual(result.balance.last_transaction_at, expected_time)
+        self.assertEqual(result.stock_transaction.occurred_at, expected_time)
+        self.assertTrue(timezone.is_aware(result.stock_transaction.occurred_at))
 
     def test_receipt_uses_standard_cost_when_unit_cost_is_missing(self):
 
@@ -1070,6 +1106,29 @@ class ReservationServiceTests(
             self.part.reserved_quantity,
             D5,
         )
+
+    def test_reservation_cannot_exceed_remaining_requirement(self):
+
+        self.balance.quantity_on_hand = D20
+        self.balance.save(update_fields=["quantity_on_hand"])
+
+        ReservationService.reserve_stock(
+            work_order_part=self.part,
+            quantity=D6,
+            performed_by=self.user,
+        )
+
+        with self.assertRaises(WorkOrderPartError):
+            ReservationService.reserve_stock(
+                work_order_part=self.part,
+                quantity=D5,
+                performed_by=self.user,
+            )
+
+        self.part.refresh_from_db()
+        self.balance.refresh_from_db()
+        self.assertEqual(self.part.reserved_quantity, D6)
+        self.assertEqual(self.balance.reserved_quantity, D6)
 
     def test_release_reserved_stock(self):
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
@@ -116,6 +117,75 @@ def _as_cost(value: Any, *, field_name: str = "unit_cost") -> Decimal:
 def _clean_text(value: Any, *, upper: bool = False) -> str:
     text = "" if value is None else str(value).strip()
     return text.upper() if upper else text
+
+
+def _operation_time(value: datetime | None) -> datetime:
+    """Return one timezone-aware timestamp for a stock operation."""
+    if value is None:
+        return timezone.now()
+    if not isinstance(value, datetime):
+        raise InvalidInventoryOperationError(
+            "occurred_at must be a datetime value."
+        )
+    if timezone.is_naive(value):
+        return timezone.make_aware(value, timezone.get_current_timezone())
+    return value
+
+
+def _as_quantity_difference(value: Any) -> Decimal:
+    """Normalize a signed legacy adjustment quantity."""
+    try:
+        difference = Decimal(str(value)).quantize(
+            QUANTITY_STEP,
+            rounding=ROUND_HALF_UP,
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise InvalidInventoryOperationError(
+            "quantity_difference must be a valid decimal number."
+        ) from exc
+    if difference == ZERO_QUANTITY:
+        raise InvalidInventoryOperationError(
+            "quantity_difference must not be zero."
+        )
+    return difference
+
+
+def _normalize_adjustment_arguments(
+    *,
+    quantity: Any | None,
+    direction: str | None,
+    quantity_difference: Any | None,
+) -> tuple[Decimal, str]:
+    """Support canonical and signed adjustment contracts explicitly."""
+    if quantity_difference is not None:
+        difference = _as_quantity_difference(quantity_difference)
+        inferred_direction = "in" if difference > ZERO_QUANTITY else "out"
+        inferred_quantity = abs(difference)
+        if quantity is not None:
+            canonical_quantity = _as_quantity(quantity)
+            if canonical_quantity != inferred_quantity:
+                raise InvalidInventoryOperationError(
+                    "quantity and quantity_difference must agree."
+                )
+        if direction is not None:
+            normalized_direction = _clean_text(direction).lower()
+            if normalized_direction != inferred_direction:
+                raise InvalidInventoryOperationError(
+                    "direction and quantity_difference must agree."
+                )
+        return inferred_quantity, inferred_direction
+
+    if quantity is None:
+        raise InvalidInventoryOperationError(
+            "quantity or quantity_difference is required."
+        )
+    quantity_value = _as_quantity(quantity)
+    normalized_direction = _clean_text(direction).lower()
+    if normalized_direction not in {"in", "out"}:
+        raise InvalidInventoryOperationError(
+            "direction must be either 'in' or 'out'."
+        )
+    return quantity_value, normalized_direction
 
 
 def _validate_actor(performed_by: Any) -> None:
@@ -246,7 +316,7 @@ def _create_stock_transaction(
     unit_cost: Decimal,
     balance: StockBalance,
     performed_by: Any,
-    occurred_at: Any = None,
+    occurred_at: datetime | None = None,
     work_order_part: WorkOrderPart | None = None,
     counterpart_warehouse: Warehouse | None = None,
     reference_number: str = "",
@@ -268,7 +338,7 @@ def _create_stock_transaction(
         counterpart_warehouse=counterpart_warehouse,
         reference_number=_clean_text(reference_number, upper=True),
         performed_by=performed_by,
-        occurred_at=occurred_at or timezone.now(),
+        occurred_at=_operation_time(occurred_at),
         notes=_clean_text(notes),
     )
 
@@ -331,7 +401,7 @@ class StockReceiptService:
         unit_cost: Any | None = None,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
     ) -> StockOperationResult:
         _validate_actor(performed_by)
         quantity_value = _as_quantity(quantity)
@@ -355,10 +425,11 @@ class StockReceiptService:
         new_average_cost = (
             (old_value + received_value) / new_quantity
         ).quantize(COST_STEP, rounding=ROUND_HALF_UP)
+        operation_time = _operation_time(occurred_at)
 
         balance.quantity_on_hand = new_quantity
         balance.average_unit_cost = new_average_cost
-        balance.last_transaction_at = occurred_at or timezone.now()
+        balance.last_transaction_at = operation_time
         balance.save(
             update_fields=[
                 "quantity_on_hand",
@@ -395,7 +466,7 @@ class ReservationService:
         performed_by: Any,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
     ) -> StockOperationResult:
         _validate_actor(performed_by)
         quantity_value = _as_quantity(quantity)
@@ -408,16 +479,16 @@ class ReservationService:
         )
         balance = _get_locked_balance(warehouse=warehouse, item=item)
 
-        if quantity_value > part.remaining_requested_quantity:
-            raise WorkOrderPartError(
-                "The requested reservation exceeds the unissued quantity."
-            )
         if quantity_value > balance.available_quantity:
             raise InsufficientStockError(
                 "Available stock is insufficient for this reservation."
             )
+        if quantity_value > part.remaining_required_quantity:
+            raise WorkOrderPartError(
+                "The requested reservation exceeds the remaining requirement."
+            )
 
-        operation_time = occurred_at or timezone.now()
+        operation_time = _operation_time(occurred_at)
         balance.reserved_quantity += quantity_value
         balance.last_transaction_at = operation_time
         balance.save(
@@ -455,7 +526,7 @@ class ReservationService:
         performed_by: Any,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
     ) -> StockOperationResult:
         _validate_actor(performed_by)
         quantity_value = _as_quantity(quantity)
@@ -477,7 +548,7 @@ class ReservationService:
                 "The stock balance does not have enough reserved quantity."
             )
 
-        operation_time = occurred_at or timezone.now()
+        operation_time = _operation_time(occurred_at)
         balance.reserved_quantity -= quantity_value
         balance.last_transaction_at = operation_time
         balance.save(
@@ -519,7 +590,7 @@ class StockIssueService:
         performed_by: Any,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
     ) -> StockOperationResult:
         _validate_actor(performed_by)
         quantity_value = _as_quantity(quantity)
@@ -549,7 +620,7 @@ class StockIssueService:
                 "Issue quantity would exceed the requested quantity."
             )
 
-        operation_time = occurred_at or timezone.now()
+        operation_time = _operation_time(occurred_at)
         issue_cost = balance.average_unit_cost
         balance.quantity_on_hand -= quantity_value
         balance.reserved_quantity -= quantity_value
@@ -604,7 +675,7 @@ class ConsumptionService:
         performed_by: Any,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
     ) -> StockOperationResult:
         _validate_actor(performed_by)
         quantity_value = _as_quantity(quantity)
@@ -622,7 +693,7 @@ class ConsumptionService:
                 "Consumption exceeds the issued quantity still available."
             )
 
-        operation_time = occurred_at or timezone.now()
+        operation_time = _operation_time(occurred_at)
         part.consumed_quantity += quantity_value
         part.save(update_fields=["consumed_quantity", "updated_at"])
 
@@ -654,7 +725,7 @@ class ConsumptionService:
         performed_by: Any,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
     ) -> StockOperationResult:
         _validate_actor(performed_by)
         quantity_value = _as_quantity(quantity)
@@ -675,7 +746,7 @@ class ConsumptionService:
                 "Return quantity exceeds the issued quantity still available."
             )
 
-        operation_time = occurred_at or timezone.now()
+        operation_time = _operation_time(occurred_at)
         old_quantity = balance.quantity_on_hand
         return_cost = part.estimated_unit_cost
         new_quantity = old_quantity + quantity_value
@@ -731,7 +802,7 @@ class TransferService:
         performed_by: Any,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
     ) -> TransferResult:
         _validate_actor(performed_by)
         quantity_value = _as_quantity(quantity)
@@ -785,7 +856,7 @@ class TransferService:
                 "Available stock is insufficient for this transfer."
             )
 
-        operation_time = occurred_at or timezone.now()
+        operation_time = _operation_time(occurred_at)
         transfer_cost = source_balance.average_unit_cost
         source_balance.quantity_on_hand -= quantity_value
         source_balance.last_transaction_at = operation_time
@@ -862,21 +933,24 @@ class AdjustmentService:
         *,
         warehouse: Warehouse,
         item: InventoryItem,
-        quantity: Any,
-        direction: str,
         performed_by: Any,
+        quantity: Any | None = None,
+        direction: str | None = None,
         unit_cost: Any | None = None,
         reference_number: str = "",
         notes: str = "",
-        occurred_at: Any = None,
+        occurred_at: datetime | None = None,
+        quantity_difference: Any | None = None,
+        reason: str | None = None,
     ) -> StockOperationResult:
         _validate_actor(performed_by)
-        quantity_value = _as_quantity(quantity)
-        normalized_direction = _clean_text(direction).lower()
-        if normalized_direction not in {"in", "out"}:
-            raise InvalidInventoryOperationError(
-                "direction must be either 'in' or 'out'."
-            )
+        quantity_value, normalized_direction = _normalize_adjustment_arguments(
+            quantity=quantity,
+            direction=direction,
+            quantity_difference=quantity_difference,
+        )
+        if reason is not None and not _clean_text(notes):
+            notes = reason
 
         locked_warehouse, locked_item = _lock_warehouse_and_item(
             warehouse_id=warehouse.pk,
@@ -886,7 +960,7 @@ class AdjustmentService:
             warehouse=locked_warehouse,
             item=locked_item,
         )
-        operation_time = occurred_at or timezone.now()
+        operation_time = _operation_time(occurred_at)
 
         if normalized_direction == "in":
             adjustment_cost = _as_cost(

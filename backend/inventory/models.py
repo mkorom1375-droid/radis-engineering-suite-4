@@ -567,6 +567,17 @@ class WorkOrderPart(models.Model):
         )
 
     @property
+    def remaining_required_quantity(self):
+        """Quantity still available to reserve for this work-order part."""
+
+        return max(
+            self.requested_quantity
+            - self.reserved_quantity
+            - self.issued_quantity,
+            Decimal("0.000"),
+        )
+
+    @property
     def issued_available_quantity(self):
         return self.issued_quantity - (
             self.consumed_quantity + self.returned_quantity
@@ -624,6 +635,15 @@ class WorkOrderPart(models.Model):
         if self.reserved_quantity > self.requested_quantity:
             errors["reserved_quantity"] = _(
                 "مقدار رزروشده نمی‌تواند بیشتر از مقدار درخواستی باشد."
+            )
+
+        if (
+            self.reserved_quantity + self.issued_quantity
+            > self.requested_quantity
+        ):
+            errors["reserved_quantity"] = _(
+                "مجموع مقدار رزروشده و تحویل‌شده نمی‌تواند بیشتر از مقدار "
+                "درخواستی باشد."
             )
 
         if self.issued_quantity > self.requested_quantity:

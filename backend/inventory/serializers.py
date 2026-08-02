@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
@@ -24,12 +26,12 @@ from .services import (
 QUANTITY_FIELD = {
     "max_digits": 18,
     "decimal_places": 3,
-    "min_value": 0.001,
+    "min_value": Decimal("0.001"),
 }
 COST_FIELD = {
     "max_digits": 18,
     "decimal_places": 2,
-    "min_value": 0,
+    "min_value": Decimal("0"),
 }
 
 
@@ -175,6 +177,13 @@ class InventoryItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(errors)
         return attrs
 
+    def validate_standard_unit_cost(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "standard_unit_cost cannot be negative."
+            )
+        return value
+
 
 class StockBalanceSerializer(serializers.ModelSerializer):
     warehouse_detail = WarehouseBriefSerializer(source="warehouse", read_only=True)
@@ -214,6 +223,9 @@ class WorkOrderPartSerializer(serializers.ModelSerializer):
     remaining_requested_quantity = serializers.DecimalField(
         max_digits=18, decimal_places=3, read_only=True
     )
+    remaining_required_quantity = serializers.DecimalField(
+        max_digits=18, decimal_places=3, read_only=True
+    )
     issued_available_quantity = serializers.DecimalField(
         max_digits=18, decimal_places=3, read_only=True
     )
@@ -239,6 +251,7 @@ class WorkOrderPartSerializer(serializers.ModelSerializer):
             "consumed_quantity",
             "returned_quantity",
             "remaining_requested_quantity",
+            "remaining_required_quantity",
             "issued_available_quantity",
             "estimated_unit_cost",
             "estimated_total_cost",
@@ -254,6 +267,7 @@ class WorkOrderPartSerializer(serializers.ModelSerializer):
             "consumed_quantity",
             "returned_quantity",
             "remaining_requested_quantity",
+            "remaining_required_quantity",
             "issued_available_quantity",
             "estimated_total_cost",
             "consumed_total_cost",
@@ -513,12 +527,59 @@ class StockTransferSerializer(BaseInventoryActionSerializer):
 class StockAdjustmentSerializer(BaseInventoryActionSerializer):
     warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all())
     item = serializers.PrimaryKeyRelatedField(queryset=InventoryItem.objects.all())
-    direction = serializers.ChoiceField(choices=("in", "out"))
+    quantity = serializers.DecimalField(
+        **QUANTITY_FIELD,
+        required=False,
+    )
+    quantity_difference = serializers.DecimalField(
+        max_digits=18,
+        decimal_places=3,
+        required=False,
+        allow_null=True,
+    )
+    direction = serializers.ChoiceField(
+        choices=("in", "out"),
+        required=False,
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
     unit_cost = serializers.DecimalField(
         **COST_FIELD, required=False, allow_null=True
     )
 
     def validate(self, attrs):
+        quantity_difference = attrs.get("quantity_difference")
+        quantity = attrs.get("quantity")
+        direction = attrs.get("direction")
+
+        if quantity_difference is not None:
+            if quantity_difference == 0:
+                raise serializers.ValidationError(
+                    {"quantity_difference": "Adjustment cannot be zero."}
+                )
+            inferred_direction = "in" if quantity_difference > 0 else "out"
+            inferred_quantity = abs(quantity_difference)
+            if quantity is not None and quantity != inferred_quantity:
+                raise serializers.ValidationError(
+                    {"quantity": "quantity must match quantity_difference."}
+                )
+            if direction is not None and direction != inferred_direction:
+                raise serializers.ValidationError(
+                    {"direction": "direction must match quantity_difference."}
+                )
+            attrs["quantity"] = inferred_quantity
+            attrs["direction"] = inferred_direction
+        elif quantity is None or direction is None:
+            raise serializers.ValidationError(
+                {
+                    "quantity": "quantity or quantity_difference is required.",
+                    "direction": "direction is required when quantity is used.",
+                }
+            )
+
         if attrs["warehouse"].project_id != attrs["item"].project_id:
             raise serializers.ValidationError(
                 {"item": "کالا و انبار باید متعلق به یک پروژه باشند."}
@@ -527,6 +588,9 @@ class StockAdjustmentSerializer(BaseInventoryActionSerializer):
             raise serializers.ValidationError(
                 {"unit_cost": "برای اصلاح کاهشی، بهای واحد از موجودی فعلی محاسبه می‌شود."}
             )
+        reason = attrs.get("reason", "")
+        if reason and not attrs.get("notes"):
+            attrs["notes"] = reason
         return attrs
 
     def create(self, validated_data):
@@ -534,9 +598,13 @@ class StockAdjustmentSerializer(BaseInventoryActionSerializer):
             return AdjustmentService.adjust_stock(
                 warehouse=validated_data["warehouse"],
                 item=validated_data["item"],
+                quantity=validated_data["quantity"],
                 direction=validated_data["direction"],
+                performed_by=self._actor(),
                 unit_cost=validated_data.get("unit_cost"),
-                **self._common_kwargs(validated_data),
+                reference_number=validated_data.get("reference_number", ""),
+                notes=validated_data.get("notes", ""),
+                occurred_at=validated_data.get("occurred_at"),
             )
         except (InventoryServiceError, DjangoValidationError) as exc:
             _raise_drf_validation_error(exc)
