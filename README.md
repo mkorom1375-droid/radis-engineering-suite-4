@@ -7,6 +7,7 @@ RADIS is an engineering operations platform under active development. The curren
 The foundation branch adds:
 
 - a registered Inventory API under `/api/inventory/`
+- a documented inventory action contract in [`docs/inventory-api.md`](docs/inventory-api.md)
 - a health endpoint at `/api/health/`
 - JWT login and refresh endpoints
 - a complete backend dependency list
