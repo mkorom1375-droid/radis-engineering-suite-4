@@ -167,9 +167,10 @@ class ProjectStageViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         project = self.get_project()
-        order = serializer.validated_data.get("order")
-        if order is None:
+        if "order" not in serializer.initial_data:
             order = ProjectStageService.next_order(project)
+        else:
+            order = serializer.validated_data["order"]
         if ProjectStage.objects.filter(
             project=project,
             order=order,
