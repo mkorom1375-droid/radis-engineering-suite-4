@@ -6,9 +6,10 @@ RADIS is an engineering operations platform under active development. The curren
 
 The foundation branch adds:
 
-- a registered Inventory API under `/api/inventory/`
-- a documented inventory action contract in [`docs/inventory-api.md`](docs/inventory-api.md)
-- a health endpoint at `/api/health/`
+- a registered Inventory API under \`/api/inventory/\`
+- a documented inventory action contract in [\`docs/inventory-api.md\`](docs/inventory-api.md)
+- organization-scoped project numbering and weighted project stages in [\`docs/projects-numbering-stages.md\`](docs/projects-numbering-stages.md)
+- a health endpoint at \`/api/health/\`
 - JWT login and refresh endpoints
 - a complete backend dependency list
 - environment-variable examples
@@ -23,25 +24,25 @@ The foundation branch adds:
 
 ### Windows PowerShell
 
-```powershell
+\`\`\`powershell
 git clone https://github.com/mkorom1375-droid/radis-engineering-suite-4.git
 cd radis-engineering-suite-4
 git checkout develop/foundation-stage-1
 
 cd backend
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\\.venv\\Scripts\\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
-```
+\`\`\`
 
 ### Linux or macOS
 
-```bash
+\`\`\`bash
 git clone https://github.com/mkorom1375-droid/radis-engineering-suite-4.git
 cd radis-engineering-suite-4
 git checkout develop/foundation-stage-1
@@ -55,36 +56,37 @@ cp .env.example .env
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
-```
+\`\`\`
 
 ## Verification
 
-Run the following commands from the `backend` directory:
+Run the following commands from the \`backend\` directory:
 
-```bash
+\`\`\`bash
 python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test
-```
+\`\`\`
 
 Then open:
 
-- Health check: `http://127.0.0.1:8000/api/health/`
-- Admin: `http://127.0.0.1:8000/admin/`
-- Inventory warehouses: `http://127.0.0.1:8000/api/inventory/warehouses/`
+- Health check: \`http://127.0.0.1:8000/api/health/\`
+- Admin: \`http://127.0.0.1:8000/admin/\`
+- Inventory warehouses: \`http://127.0.0.1:8000/api/inventory/warehouses/\`
+- Projects: \`http://127.0.0.1:8000/api/projects/\`
 
 Most business APIs require authentication. Obtain a JWT access token from:
 
-```text
+\`\`\`text
 POST /api/auth/login/
-```
+\`\`\`
 
 Refresh it through:
 
-```text
+\`\`\`text
 POST /api/auth/refresh/
-```
+\`\`\`
 
 ## Security
 
-Never commit `.env`, database files, API keys, passwords, or access tokens. Use `backend/.env.example` as the configuration template.
+Never commit \`.env\`, database files, API keys, passwords, or access tokens. Use \`backend/.env.example\` as the configuration template.
