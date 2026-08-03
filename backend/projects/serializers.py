@@ -5,7 +5,7 @@ from .models import (
     ProjectNumberingSettings,
     ProjectStage,
 )
- 
+
 
 class ProjectNumberingSettingsSerializer(serializers.ModelSerializer):
     class Meta:
