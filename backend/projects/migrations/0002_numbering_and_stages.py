@@ -110,13 +110,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.AddConstraint(
-            model_name="projectnumberingsettings",
-            constraint=models.UniqueConstraint(
-                fields=("organization",),
-                name="unique_project_numbering_org",
-            ),
-        ),
-        migrations.AddConstraint(
             model_name="projectstage",
             constraint=models.UniqueConstraint(
                 fields=("project", "code"),
